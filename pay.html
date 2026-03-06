@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arista Plumbing — Pay Invoice</title>
+  <script src="https://js.stripe.com/v3/"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f6f7f9; }
+    .wrap { max-width: 640px; margin: 40px auto; padding: 0 16px; }
+    .card { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .brand h1 { font-size: 18px; margin: 0; }
+    .meta { color: #555; margin: 8px 0 16px; }
+    .border { border: 2px solid #000; border-radius: 14px; padding: 12px; }
+    .border-inner { border: 2px solid #2268DB; border-radius: 10px; padding: 16px; }
+    button { width: 100%; padding: 12px 14px; border: 0; border-radius: 10px; background: #2268DB; color: #fff; font-weight: 600; font-size: 16px; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    #message { margin-top: 12px; color: #b00020; }
+    .hint { font-size: 12px; color: #666; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="border">
+      <div class="border-inner">
+        <div class="card">
+          <div class="brand">
+            <img src="/logo.png" alt="Arista" style="height:42px; width:auto" onerror="this.style.display='none'" />
+            <h1>ARISTA — Pay Invoice <span id="inv"></span></h1>
+          </div>
+          <div class="meta" id="meta">Loading payment form…</div>
+
+          <form id="payment-form">
+            <div id="payment-element"></div>
+            <div style="height:14px"></div>
+            <button id="submit" disabled>Pay</button>
+            <div id="message"></div>
+          </form>
+
+          <div class="hint">
+            Having trouble? Call/text Arista Plumbing.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // 1) Put your Stripe publishable key here (pk_test_... or pk_live_...)
+  const STRIPE_PUBLISHABLE_KEY = "REPLACE_WITH_YOUR_PK_KEY";
+
+  const qs = new URLSearchParams(location.search);
+  const invoice = qs.get('invoice');
+  const token = qs.get('t');
+
+  const invEl = document.getElementById('inv');
+  if (invoice) invEl.textContent = `#${invoice}`;
+
+  const metaEl = document.getElementById('meta');
+  const msgEl = document.getElementById('message');
+  const submitBtn = document.getElementById('submit');
+
+  function setMessage(text) {
+    msgEl.textContent = text || "";
+  }
+
+  async function init() {
+    if (!invoice || !token) {
+      metaEl.textContent = "Missing invoice link data.";
+      setMessage("This payment link is incomplete. Please request a new link.");
+      return;
+    }
+
+    if (!STRIPE_PUBLISHABLE_KEY.startsWith('pk_')) {
+      metaEl.textContent = "Site not configured.";
+      setMessage("Stripe publishable key is not set in pay.html.");
+      return;
+    }
+
+    metaEl.textContent = "Preparing secure payment…";
+
+    // 2) Ask our Cloudflare Function to create a PaymentIntent for this invoice
+    const resp = await fetch('/api/create-payment-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoice: Number(invoice), token })
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      metaEl.textContent = "Could not start payment.";
+      setMessage(text);
+      return;
+    }
+
+    const data = await resp.json();
+    const clientSecret = data.clientSecret;
+    if (!clientSecret) {
+      metaEl.textContent = "Could not start payment.";
+      setMessage("Missing client secret.");
+      return;
+    }
+
+    // 3) Mount Stripe Payment Element
+    const stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
+    const elements = stripe.elements({ clientSecret });
+    const paymentElement = elements.create('payment');
+    paymentElement.mount('#payment-element');
+
+    metaEl.textContent = "Enter your card details below.";
+    submitBtn.disabled = false;
+
+    const form = document.getElementById('payment-form');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      submitBtn.disabled = true;
+      setMessage("");
+
+      const { error } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          // Stripe will redirect here after 3DS/auth if needed
+          return_url: `${location.origin}/paid.html?invoice=${encodeURIComponent(invoice)}`
+        }
+      });
+
+      // If stripe.confirmPayment returns immediately with an error
+      if (error) {
+        submitBtn.disabled = false;
+        setMessage(error.message);
+      }
+    });
+  }
+
+  init().catch((e) => {
+    metaEl.textContent = "Could not start payment.";
+    setMessage(e?.message || String(e));
+  });
+</script>
+</body>
+</html>

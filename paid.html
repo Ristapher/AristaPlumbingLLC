@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Payment received — Arista</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; background:#f6f7f9; }
+    .wrap { max-width: 640px; margin: 40px auto; padding: 0 16px; }
+    .card { background:#fff; border-radius:14px; padding:20px; box-shadow:0 8px 24px rgba(0,0,0,.08); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Payment received ✅</h1>
+      <p>Thank you! If you have any questions, contact Arista Plumbing.</p>
+      <p id="inv"></p>
+    </div>
+  </div>
+<script>
+  const inv = new URLSearchParams(location.search).get('invoice');
+  if (inv) document.getElementById('inv').textContent = `Invoice #${inv}`;
+</script>
+</body>
+</html>
