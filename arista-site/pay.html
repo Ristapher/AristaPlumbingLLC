@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pay Invoice | Arista Plumbing LLC</title>
+  <meta name="description" content="Secure invoice payment for Arista Plumbing LLC." />
+  <script src="https://js.stripe.com/v3/"></script>
+  <style>
+    :root{
+      --blue:#0b3a8f;
+      --blue2:#0a2f73;
+      --gold:#d4a019;
+      --ink:#101828;
+      --muted:#667085;
+      --bg:#f6f8fb;
+      --card:#ffffff;
+      --border:#e6eaf2;
+      --shadow:0 10px 30px rgba(16,24,40,.10);
+      --radius:16px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+      line-height:1.5;
+    }
+    .wrap{max-width:720px;margin:28px auto;padding:0 16px}
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .topbar{height:8px;background:linear-gradient(90deg,var(--blue),var(--gold))}
+    .inner{padding:22px}
+    .brand{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+    .brand img{width:56px;height:56px;object-fit:contain}
+    h1{font-size:1.6rem;margin:0}
+    .sub{color:var(--muted);margin:6px 0 0}
+    .pillrow{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}
+    .pill{
+      display:inline-flex;align-items:center;padding:8px 12px;
+      border-radius:999px;background:#fff;border:1px solid var(--border);
+      font-size:.95rem;font-weight:600;
+    }
+    .meta{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+      margin:16px 0 20px;
+    }
+    .box{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:14px;
+      background:#fff;
+    }
+    .label{display:block;color:var(--muted);font-size:.85rem;margin-bottom:4px}
+    .value{font-size:1.15rem;font-weight:800}
+    #payment-shell{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:14px;
+      background:#fff;
+    }
+    #message{
+      margin-top:14px;
+      min-height:24px;
+      color:#b42318;
+      font-weight:600;
+    }
+    button{
+      width:100%;
+      margin-top:14px;
+      padding:14px 16px;
+      border:0;
+      border-radius:12px;
+      background:var(--blue);
+      color:#fff;
+      font-size:1rem;
+      font-weight:800;
+      cursor:pointer;
+    }
+    button:hover{background:var(--blue2)}
+    button:disabled{opacity:.65;cursor:not-allowed}
+    .foot{
+      margin-top:16px;
+      color:var(--muted);
+      font-size:.95rem;
+    }
+    a.link{color:var(--blue);font-weight:700;text-decoration:none}
+    @media (max-width:640px){
+      .meta{grid-template-columns:1fr}
+      .brand img{width:48px;height:48px}
+      h1{font-size:1.35rem}
+      .wrap{margin:16px auto}
+      .inner{padding:16px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="topbar"></div>
+      <div class="inner">
+        <div class="brand">
+          <img src="/images/arista-logo.png" alt="Arista Plumbing LLC logo" onerror="this.style.display='none'" />
+          <div>
+            <h1>Secure invoice payment</h1>
+            <p class="sub">Arista Plumbing LLC</p>
+          </div>
+        </div>
+
+        <div class="pillrow">
+          <div class="pill">Card payment</div>
+          <div class="pill">One-time charge</div>
+          <div class="pill">Secure Stripe form</div>
+        </div>
+
+        <div class="meta">
+          <div class="box">
+            <span class="label">Invoice</span>
+            <div class="value" id="invoice-value">Loading…</div>
+          </div>
+          <div class="box">
+            <span class="label">Amount due</span>
+            <div class="value" id="amount-value">Loading…</div>
+          </div>
+        </div>
+
+        <div id="payment-shell">
+          <div id="payment-element"></div>
+          <button id="submit" type="button" disabled>Pay now</button>
+          <div id="message" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="foot">
+          Need help? Call <a class="link" href="tel:17282263312">728-226-3312</a>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const STRIPE_PUBLISHABLE_KEY = "REPLACE_WITH_YOUR_PK_KEY";
+
+  const qs = new URLSearchParams(location.search);
+  const invoice = qs.get('invoice');
+  const token = qs.get('t');
+
+  const invoiceValue = document.getElementById('invoice-value');
+  const amountValue = document.getElementById('amount-value');
+  const submitBtn = document.getElementById('submit');
+  const messageEl = document.getElementById('message');
+
+  function setMessage(text) {
+    messageEl.textContent = text || '';
+  }
+
+  function formatMoney(amountCents, currency) {
+    try {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: String(currency || 'usd').toUpperCase(),
+      }).format(Number(amountCents || 0) / 100);
+    } catch {
+      return `${(Number(amountCents || 0) / 100).toFixed(2)} ${String(currency || 'usd').toUpperCase()}`;
+    }
+  }
+
+  async function init() {
+    if (!invoice || !token) {
+      invoiceValue.textContent = 'Missing link data';
+      amountValue.textContent = '—';
+      setMessage('This payment link is incomplete. Request a new link.');
+      return;
+    }
+
+    invoiceValue.textContent = `#${invoice}`;
+
+    if (!STRIPE_PUBLISHABLE_KEY.startsWith('pk_')) {
+      amountValue.textContent = '—';
+      setMessage('Stripe publishable key is not set in pay.html.');
+      return;
+    }
+
+    const resp = await fetch('/api/create-payment-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoice: Number(invoice), token }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+
+    if (!resp.ok) {
+      amountValue.textContent = '—';
+      setMessage(data?.error || 'Could not start the payment.');
+      return;
+    }
+
+    amountValue.textContent = formatMoney(data.amount, data.currency);
+
+    const stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
+    const elements = stripe.elements({
+      clientSecret: data.clientSecret,
+      appearance: {
+        theme: 'stripe',
+        variables: {
+          colorPrimary: '#0b3a8f',
+          colorText: '#101828',
+          borderRadius: '12px',
+        },
+      },
+    });
+
+    const paymentElement = elements.create('payment');
+    paymentElement.mount('#payment-element');
+
+    submitBtn.disabled = false;
+    submitBtn.addEventListener('click', async () => {
+      submitBtn.disabled = true;
+      setMessage('');
+
+      const { error } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: `${location.origin}/paid.html?invoice=${encodeURIComponent(invoice)}`,
+        },
+      });
+
+      if (error) {
+        submitBtn.disabled = false;
+        setMessage(error.message || 'Payment failed.');
+      }
+    });
+  }
+
+  init().catch((error) => {
+    amountValue.textContent = '—';
+    setMessage(error?.message || String(error));
+  });
+</script>
+</body>
+</html>
